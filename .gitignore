@@ -1,0 +1,12 @@
+docs
+node_modules/
+npm-debug.log*
+dist/
+coverage/
+.env
+.env.test
+.DS_Store
+.claude/settings.local.json
+.claude/reports/
+.claude/tasks/
+CHANGE-GUIDE.html
