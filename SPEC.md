@@ -87,7 +87,7 @@ Package versions start from `crop-planner-server/package.json` and each one is c
 6. CI on push running lint, format check, typecheck, and tests.
 7. `.gitignore` and a README on running it locally.
 
-Scripts also include `run:watch` under nodemon, so an edit reloads the server.
+Scripts also include `start:watch` under nodemon, so an edit reloads the server.
 
 ## Environment variables
 

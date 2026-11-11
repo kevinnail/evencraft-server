@@ -31,7 +31,7 @@ This server is Kevin's Crop Planner server copied and renamed. Crop Planner is l
 ## Commands
 
 ```bash
-npm run run:watch          # server under nodemon, reloads on edit
+npm run start:watch          # server under nodemon, reloads on edit
 npm test                   # Vitest once
 npm run test:watch         # Vitest, stays running
 npm run test:coverage      # once, with coverage
