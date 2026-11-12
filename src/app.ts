@@ -1,7 +1,19 @@
 import express, { type ErrorRequestHandler } from 'express';
+import { toNodeHandler } from 'better-auth/node';
+import { auth } from './lib/auth';
+import { asyncHandler } from './lib/asyncHandler';
 import healthRouter from './routes/health';
 
 const app = express();
+
+// Mounted before any body parser: better-auth's handler reads the raw request body itself.
+const authHandler = toNodeHandler(auth);
+app.all(
+  '/api/auth/*',
+  asyncHandler(async (req, res) => {
+    await authHandler(req, res);
+  }),
+);
 
 app.use('/health', healthRouter);
 
