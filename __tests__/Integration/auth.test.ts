@@ -79,3 +79,81 @@ describe('POST /api/auth/sign-up/email', () => {
     expect(users).toHaveLength(0);
   });
 });
+
+describe('POST /api/auth/sign-in/email', () => {
+  // Otherwise a maker on a new phone can't get into the account that holds their backup.
+  it('signs in with the right password and starts a second session', async () => {
+    await request(app).post('/api/auth/sign-up/email').send(NEW_ACCOUNT);
+
+    const res = await request(app)
+      .post('/api/auth/sign-in/email')
+      .send({ email: NEW_ACCOUNT.email, password: NEW_ACCOUNT.password });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      redirect: false,
+      token: expect.any(String) as string,
+      user: {
+        id: expect.any(String) as string,
+        name: NEW_ACCOUNT.name,
+        email: NEW_ACCOUNT.email,
+        emailVerified: false,
+        image: null,
+        createdAt: expect.any(String) as string,
+        updatedAt: expect.any(String) as string,
+      },
+    });
+    const { token, user: signedInUser } = res.body as { token: string; user: { id: string } };
+
+    const sessions = await db.select().from(session).where(eq(session.userId, signedInUser.id));
+    expect(sessions).toHaveLength(2);
+    expect(sessions.map((row) => row.token)).toContain(token);
+  });
+
+  // Otherwise anyone who knows a maker's email gets into their backup.
+  it('refuses a wrong password and starts no session', async () => {
+    await request(app).post('/api/auth/sign-up/email').send(NEW_ACCOUNT);
+
+    const res = await request(app)
+      .post('/api/auth/sign-in/email')
+      .send({ email: NEW_ACCOUNT.email, password: 'wrong2026' });
+
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({
+      code: 'INVALID_EMAIL_OR_PASSWORD',
+      message: 'Invalid email or password',
+    });
+    expect(res.headers['set-cookie']).toBeUndefined();
+    const sessions = await db.select().from(session);
+    expect(sessions).toHaveLength(1);
+  });
+});
+
+describe('POST /api/auth/sign-out', () => {
+  // Otherwise a signed out phone's saved session still reaches the account's backup.
+  it('ends the session on the server', async () => {
+    const signUp = await request(app).post('/api/auth/sign-up/email').send(NEW_ACCOUNT);
+    const cookies = signUp.headers['set-cookie'] as unknown as string[];
+
+    const res = await request(app)
+      .post('/api/auth/sign-out')
+      .set('Cookie', cookies)
+      .set('Origin', 'evencraft://');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    const sessions = await db.select().from(session);
+    expect(sessions).toHaveLength(0);
+  });
+
+  // Otherwise a sign out request with no session could end someone else's.
+  it('ends no session when the request has none', async () => {
+    await request(app).post('/api/auth/sign-up/email').send(NEW_ACCOUNT);
+
+    const res = await request(app).post('/api/auth/sign-out');
+
+    expect(res.status).toBe(200);
+    const sessions = await db.select().from(session);
+    expect(sessions).toHaveLength(1);
+  });
+});
