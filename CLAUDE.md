@@ -19,6 +19,8 @@ The backend for EvenCraft, an iOS app for a self-employed maker. The app is loca
 
 Most slices change both this repo and the app at `../EvenCraft-App` (Expo, React Native, TypeScript, Zustand, `expo-sqlite`). The plan marks each piece of work **Server:** or **App:**. The app has its own `CLAUDE.md` with its rules; follow it when editing there.
 
+**Before adding or editing any file in `../EvenCraft-App`, check its branch (`git -C ../EvenCraft-App branch --show-current`). Continue only if it is `v2`.** On any other branch, make no changes there: stop, tell Kevin which branch it's on, and ask what he wants to do.
+
 ## Copy Crop Planner, don't redesign
 
 This server is Kevin's Crop Planner server copied and renamed. Crop Planner is live in the App Store with paying subscribers, so its auth, subscription, push, pull, and photo code is proven. Before writing any pattern, read the Crop Planner file the plan names and copy it. Where EvenCraft differs, the plan's "What's different from Crop Planner" section says how.
@@ -43,7 +45,12 @@ npm run typecheck          # tsc --noEmit
 npm run build              # tsc to dist/; npm start runs it
 ```
 
-`db:generate`, `db:apply-schema`, and `db:apply-schema:test` arrive with Drizzle in slice 2, copied from `crop-planner-server/package.json`.
+```bash
+npm run db:generate        # SQL diff from src/db/schema.ts into drizzle/
+npm run db:apply-schema    # apply drizzle/ to the database in .env
+```
+
+The test database is never set up by hand. `__tests__/globalSetup.ts` drops every table in `evencraft_test` and applies `drizzle/` fresh before each test run (and each rerun in `test:watch`). Between tests, `resetDb` in `__tests__/helpers/db.ts` truncates. The rebuild refuses any database whose name doesn't end in `_test`. Railway applies the schema before each deploy (`preDeployCommand` in `railway.toml`).
 
 Node 24 through nvm-windows. Local Postgres: `evencraft_dev` (`.env`) and `evencraft_test` (`.env.test`). The server scripts load `.env` with Node's `--env-file-if-exists` flag (no `.env` on Railway); Vitest loads `.env.test` from `vitest.config.mts`. No `.env.example`: this is a private business codebase, not one for others to set up.
 
