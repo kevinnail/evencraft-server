@@ -30,6 +30,8 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/evencraft_test
       BETTER_AUTH_SECRET: ${{ secrets.TEST_BETTER_AUTH_SECRET }}
       BETTER_AUTH_URL: http://localhost:7890
+      RESEND_API_KEY: re_test_dummy
+      EMAIL_FROM: noreply@evencraft.test
 
     steps:
       - uses: actions/checkout@v7
