@@ -3,12 +3,16 @@ import { expo } from '@better-auth/expo';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { db } from '../db/connection';
 import * as schema from '../db/schema';
+import { sendEmail } from './email';
 
 const baseURL = process.env.BETTER_AUTH_URL;
 if (!baseURL) throw new Error('BETTER_AUTH_URL is not set');
 
 const secret = process.env.BETTER_AUTH_SECRET;
 if (!secret) throw new Error('BETTER_AUTH_SECRET is not set');
+
+const passwordResetRedirectURL =
+  process.env.PASSWORD_RESET_REDIRECT_URL ?? 'evencraft://reset-password';
 
 export const auth = betterAuth({
   baseURL,
@@ -26,14 +30,16 @@ export const auth = betterAuth({
   },
 
   // On in production only (better-auth's default), so the test suite's rapid sign-ups aren't
-  // throttled. These rules tighten the endpoints open to abuse: password guessing on sign-in and
-  // mass account creation.
+  // throttled. These rules tighten the endpoints open to abuse: password guessing on sign-in,
+  // mass account creation, and flooding an inbox with reset emails (each request sends a real one).
   rateLimit: {
     enabled: process.env.NODE_ENV === 'production',
     storage: 'memory',
     customRules: {
       '/sign-in/email': { window: 60, max: 5 },
       '/sign-up/email': { window: 3600, max: 10 },
+      '/request-password-reset': { window: 3600, max: 5 },
+      '/reset-password': { window: 3600, max: 10 },
     },
   },
 
@@ -44,6 +50,17 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: false,
+    // The emailed link goes to this server, which checks the token and sends the phone on to the
+    // app at the redirect URL with the token attached.
+    sendResetPassword: async ({ user, url }) => {
+      const resetUrl = new URL(url);
+      resetUrl.searchParams.set('callbackURL', passwordResetRedirectURL);
+      await sendEmail({
+        to: user.email,
+        subject: 'Reset your EvenCraft password',
+        text: `Reset link: ${resetUrl.toString()}`,
+      });
+    },
   },
   plugins: [expo()],
 });
