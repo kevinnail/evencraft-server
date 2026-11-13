@@ -1,9 +1,18 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
+
+const { sendMock } = vi.hoisted(() => ({ sendMock: vi.fn() }));
+
+vi.mock('resend', () => ({
+  Resend: vi.fn(function () {
+    return { emails: { send: sendMock } };
+  }),
+}));
+
 import app from '../../src/app';
 import { db } from '../../src/db/connection';
-import { user, session, account } from '../../src/db/schema';
+import { user, session, account, verification } from '../../src/db/schema';
 import { resetDb } from '../helpers/db';
 
 const NEW_ACCOUNT = {
@@ -12,9 +21,24 @@ const NEW_ACCOUNT = {
   password: 'glass2026',
 };
 
+const NEW_PASSWORD = 'kiln2027';
+
 beforeEach(async () => {
   await resetDb();
+  sendMock.mockReset();
+  sendMock.mockResolvedValue({ data: { id: 'msg_test' }, error: null });
 });
+
+// Creates the account, asks for a reset, and reads the token out of the emailed link.
+async function requestResetToken(): Promise<string> {
+  await request(app).post('/api/auth/sign-up/email').send(NEW_ACCOUNT);
+  await request(app).post('/api/auth/request-password-reset').send({ email: NEW_ACCOUNT.email });
+
+  const [sent] = sendMock.mock.calls[0] as [{ text: string }];
+  const match = /\/reset-password\/([^?\s]+)/.exec(sent.text);
+  if (!match?.[1]) throw new Error(`No reset token in the email: ${sent.text}`);
+  return match[1];
+}
 
 describe('POST /api/auth/sign-up/email', () => {
   // Otherwise a maker who creates an account isn't signed in, or the account isn't saved for the next sign in.
@@ -155,5 +179,116 @@ describe('POST /api/auth/sign-out', () => {
     expect(res.status).toBe(200);
     const sessions = await db.select().from(session);
     expect(sessions).toHaveLength(1);
+  });
+});
+
+describe('POST /api/auth/request-password-reset', () => {
+  // Otherwise a maker who forgot their password never gets a link, or gets one that doesn't open the app.
+  it('sends one email with a link that opens the app', async () => {
+    await request(app).post('/api/auth/sign-up/email').send(NEW_ACCOUNT);
+
+    const res = await request(app)
+      .post('/api/auth/request-password-reset')
+      .send({ email: NEW_ACCOUNT.email });
+
+    expect(res.status).toBe(200);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock).toHaveBeenCalledWith({
+      from: `EvenCraft <${process.env.EMAIL_FROM ?? ''}>`,
+      to: NEW_ACCOUNT.email,
+      subject: 'Reset your EvenCraft password',
+      text: expect.stringMatching(
+        /^Reset link: http:\/\/localhost:7890\/api\/auth\/reset-password\/[A-Za-z0-9_-]+\?callbackURL=evencraft%3A%2F%2Freset-password$/,
+      ) as string,
+    });
+  });
+
+  // Otherwise the answer tells a stranger which emails have accounts.
+  it('answers the same for an email with no account and sends nothing', async () => {
+    const res = await request(app)
+      .post('/api/auth/request-password-reset')
+      .send({ email: 'nobody@example.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      status: true,
+      message: 'If this email exists in our system, check your email for the reset link',
+    });
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /api/auth/reset-password/:token', () => {
+  // Otherwise tapping the emailed link never reaches the app's new password screen.
+  it('sends the phone on to the app with the token', async () => {
+    const token = await requestResetToken();
+
+    const res = await request(app)
+      .get(`/api/auth/reset-password/${token}`)
+      .query({ callbackURL: 'evencraft://reset-password' });
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe(`evencraft://reset-password?token=${token}`);
+  });
+});
+
+describe('POST /api/auth/reset-password', () => {
+  // Otherwise the maker stays locked out, or the forgotten password still opens the account.
+  it('sets the new password, which signs in while the old one is refused', async () => {
+    const token = await requestResetToken();
+
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, newPassword: NEW_PASSWORD });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: true });
+
+    const oldPassword = await request(app)
+      .post('/api/auth/sign-in/email')
+      .send({ email: NEW_ACCOUNT.email, password: NEW_ACCOUNT.password });
+    expect(oldPassword.status).toBe(401);
+
+    const newPassword = await request(app)
+      .post('/api/auth/sign-in/email')
+      .send({ email: NEW_ACCOUNT.email, password: NEW_PASSWORD });
+    expect(newPassword.status).toBe(200);
+  });
+
+  // Otherwise anyone who later finds the email can change the password again.
+  it('refuses a token that was already used and keeps the password', async () => {
+    const token = await requestResetToken();
+    await request(app).post('/api/auth/reset-password').send({ token, newPassword: NEW_PASSWORD });
+
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, newPassword: 'another2028' });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ code: 'INVALID_TOKEN', message: 'Invalid token' });
+    const signIn = await request(app)
+      .post('/api/auth/sign-in/email')
+      .send({ email: NEW_ACCOUNT.email, password: NEW_PASSWORD });
+    expect(signIn.status).toBe(200);
+  });
+
+  // Otherwise a link left in an old email works forever.
+  it('refuses an expired token and keeps the password', async () => {
+    const token = await requestResetToken();
+    await db
+      .update(verification)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(verification.identifier, `reset-password:${token}`));
+
+    const res = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token, newPassword: NEW_PASSWORD });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ code: 'INVALID_TOKEN', message: 'Invalid token' });
+    const signIn = await request(app)
+      .post('/api/auth/sign-in/email')
+      .send({ email: NEW_ACCOUNT.email, password: NEW_ACCOUNT.password });
+    expect(signIn.status).toBe(200);
   });
 });
