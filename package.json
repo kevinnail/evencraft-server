@@ -26,7 +26,8 @@
     "better-auth": "1.7.14",
     "drizzle-orm": "^0.45.4",
     "express": "^4.22.3",
-    "postgres": "^3.4.9"
+    "postgres": "^3.4.9",
+    "resend": "^6.35.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
