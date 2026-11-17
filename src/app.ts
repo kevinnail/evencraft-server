@@ -3,6 +3,8 @@ import { toNodeHandler } from 'better-auth/node';
 import { auth } from './lib/auth';
 import { asyncHandler } from './lib/asyncHandler';
 import healthRouter from './routes/health';
+import webhooksRouter from './routes/webhooks';
+import syncRouter from './routes/sync';
 
 const app = express();
 
@@ -15,7 +17,10 @@ app.all(
   }),
 );
 
+app.use(express.json());
 app.use('/health', healthRouter);
+app.use('/webhooks', webhooksRouter);
+app.use('/sync', syncRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not Found' });
