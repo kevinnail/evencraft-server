@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, boolean, varchar, index } from 'drizzle-orm/pg-core';
 
 // better-auth tables
 export const user = pgTable('user', {
@@ -72,3 +72,15 @@ export const verification = pgTable(
   },
   (table) => [index('verification_identifier_idx').on(table.identifier)],
 );
+
+// One row per account, written only by RevenueCat's webhook. A null expires_at is a purchase
+// with no end date.
+export const subscriptions = pgTable('subscriptions', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  status: varchar('status', { length: 20 }).notNull(),
+  productId: varchar('product_id', { length: 255 }),
+  expiresAt: timestamp('expires_at'),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
